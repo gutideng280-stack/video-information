@@ -113,7 +113,22 @@ const YouTubeService = {
                 const errorText = await response.text();
                 console.error(`YouTube API 错误: ${response.status} - ${errorText}`);
                 if (response.status === 403) {
-                    throw new Error('YouTube API 配额已用尽，请稍后重试');
+                    let errorMsg = 'YouTube API 请求被拒绝（403）';
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        const reason = errorJson?.error?.errors?.[0]?.reason;
+                        const message = errorJson?.error?.message;
+                        if (reason === 'quotaExceeded') {
+                            errorMsg = 'YouTube API 每日配额已用尽，请明天再试或更换 API Key';
+                        } else if (reason === 'accessNotConfigured' || reason === 'referrerNotAllowed') {
+                            errorMsg = 'YouTube API Key 限制了访问来源，请检查 API Key 的 HTTP 来源限制设置，添加 GitHub Pages 域名到允许列表';
+                        } else if (message) {
+                            errorMsg = `YouTube API 错误: ${message}`;
+                        }
+                    } catch {
+                        // 解析失败，使用默认提示
+                    }
+                    throw new Error(errorMsg);
                 }
                 if (response.status === 404) {
                     throw new Error('视频不存在或已被删除');
