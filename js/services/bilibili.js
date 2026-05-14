@@ -5,8 +5,13 @@ const BilibiliService = {
     // CORS 代理列表
     corsProxies: [
         'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?'
+        'https://corsproxy.io/?',
+        'https://api.codetabs.com/v1/proxy?quest=',
+        'https://proxy.cors.sh/'
     ],
+
+    // 每个代理的超时时间（毫秒）
+    proxyTimeout: 5000,
 
     /**
      * 获取 Bilibili 视频数据
@@ -103,6 +108,16 @@ const BilibiliService = {
             apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${videoId}`;
         }
 
+        // 先尝试直接请求（部分环境可能支持跨域）
+        try {
+            const directData = await this.fetchDirectApi(apiUrl);
+            if (directData) {
+                return directData;
+            }
+        } catch (e) {
+            console.log('Bilibili 直接 API 请求失败，尝试代理:', e.message);
+        }
+
         // 尝试通过多个代理获取
         for (let i = 0; i < this.corsProxies.length; i++) {
             try {
@@ -138,13 +153,63 @@ const BilibiliService = {
     },
 
     /**
+     * 直接请求 Bilibili API（不经过代理）
+     */
+    async fetchDirectApi(url) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.proxyTimeout);
+
+        try {
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://www.bilibili.com/'
+                },
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.code === 0 && data.data) {
+                const videoInfo = data.data;
+                return {
+                    bvid: videoInfo.bvid,
+                    title: videoInfo.title || '未知标题',
+                    author: videoInfo.owner?.name || '未知UP主',
+                    thumbnail: videoInfo.pic ? `https:${videoInfo.pic}` : '',
+                    publishTime: this.formatTimestamp(videoInfo.pubdate),
+                    viewCount: videoInfo.stat?.view || 0,
+                    likeCount: videoInfo.stat?.like || 0,
+                    commentCount: videoInfo.stat?.reply || 0,
+                    shareCount: videoInfo.stat?.share || 0,
+                    favoriteCount: videoInfo.stat?.favorite || 0,
+                    coinCount: videoInfo.stat?.coin || 0,
+                    duration: videoInfo.duration || 0,
+                    description: videoInfo.desc || ''
+                };
+            }
+            throw new Error(data.message || 'API 返回错误');
+        } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+        }
+    },
+
+    /**
      * 通过代理获取 API 数据
      */
     async fetchApi(url, proxyIndex = 0) {
         const proxyUrl = this.corsProxies[proxyIndex] + encodeURIComponent(url);
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), this.proxyTimeout);
         
         try {
             const response = await fetch(proxyUrl, {

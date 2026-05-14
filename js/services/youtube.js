@@ -8,8 +8,13 @@ const YouTubeService = {
     // CORS 代理列表（用于绕过跨域限制）
     corsProxies: [
         'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?'
+        'https://corsproxy.io/?',
+        'https://api.codetabs.com/v1/proxy?quest=',
+        'https://proxy.cors.sh/'
     ],
+
+    // 每个代理的超时时间（毫秒）
+    proxyTimeout: 5000,
 
     /**
      * 获取 YouTube 视频数据
@@ -302,9 +307,10 @@ const YouTubeService = {
     /**
      * 带超时的 fetch
      */
-    async fetchWithTimeout(url, timeout = 8000) {
+    async fetchWithTimeout(url, timeout = null) {
+        const actualTimeout = timeout || this.proxyTimeout || 5000;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        const timeoutId = setTimeout(() => controller.abort(), actualTimeout);
 
         try {
             const response = await fetch(url, {
