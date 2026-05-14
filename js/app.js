@@ -186,10 +186,10 @@ class VideoStatsApp {
             console.log('准备查询:', entries);
 
             // 显示加载状态
-            this.setLoading(true);
+            this.setLoading(true, `正在查询 ${entries.length} 个视频...`);
 
             try {
-                // 批量获取数据
+                // 批量获取数据（并行）
                 const results = await this.batchFetchData(entries);
                 
                 // 显示结果
@@ -208,8 +208,6 @@ class VideoStatsApp {
     }
 
     async batchFetchData(entries) {
-        const results = [];
-
         // 总体超时保护：每个条目最多 30 秒
         const PER_ENTRY_TIMEOUT = 30000;
         const overallTimeout = entries.length * PER_ENTRY_TIMEOUT;
@@ -219,70 +217,91 @@ class VideoStatsApp {
         );
 
         const fetchPromise = (async () => {
-            for (let i = 0; i < entries.length; i++) {
-                const entry = entries[i];
-                console.log(`处理 ${i+1}/${entries.length}:`, entry);
-
+            // 解析所有条目
+            const parsedEntries = entries.map((entry, index) => {
                 const parseResult = LinkParser.parse(entry.url, entry.platform);
-                console.log('解析结果:', parseResult);
+                return { index, entry, parseResult };
+            });
 
-                if (!parseResult.isValid) {
-                    results.push({
-                        platform: entry.platform,
-                        videoId: entry.url,
-                        title: '',
-                        author: '',
-                        thumbnail: '',
-                        publishTime: '',
-                        viewCount: 0,
-                        likeCount: 0,
-                        commentCount: 0,
-                        shareCount: null,
-                        status: 'error',
-                        errorMessage: parseResult.error || '链接格式无效'
-                    });
-                    continue;
-                }
+            const total = parsedEntries.length;
+            let completed = 0;
 
-                // 根据平台获取数据
-                try {
-                    if (parseResult.platform === 'youtube') {
-                        const data = await YouTubeService.fetchVideoData(parseResult.videoId);
-                        results.push(data);
-                    } else if (parseResult.platform === 'bilibili') {
-                        const data = await BilibiliService.fetchVideoData(
-                            parseResult.videoId,
-                            parseResult.type
-                        );
-                        results.push(data);
-                    } else if (parseResult.platform === 'twitter') {
-                        const data = await TwitterService.fetchVideoData(parseResult.videoId);
-                        results.push(data);
+            // 并发处理所有条目
+            const tasks = parsedEntries.map(({ index, entry, parseResult }) =>
+                (async () => {
+                    const platformNames = { youtube: 'YouTube', bilibili: 'Bilibili', twitter: 'Twitter' };
+                    const platformName = platformNames[parseResult.platform] || parseResult.platform;
+
+                    this.setLoadingText(`正在查询 ${platformName} 视频 (${completed + 1}/${total})...`);
+
+                    if (!parseResult.isValid) {
+                        completed++;
+                        return {
+                            platform: entry.platform,
+                            videoId: entry.url,
+                            title: '',
+                            author: '',
+                            thumbnail: '',
+                            publishTime: '',
+                            viewCount: 0,
+                            likeCount: 0,
+                            commentCount: 0,
+                            shareCount: null,
+                            status: 'error',
+                            errorMessage: parseResult.error || '链接格式无效'
+                        };
                     }
-                } catch (fetchError) {
-                    console.error('获取数据失败:', fetchError);
-                    results.push({
-                        platform: entry.platform,
-                        videoId: parseResult.videoId,
-                        title: '',
-                        author: '',
-                        thumbnail: '',
-                        publishTime: '',
-                        viewCount: 0,
-                        likeCount: 0,
-                        commentCount: 0,
-                        shareCount: null,
-                        status: 'error',
-                        errorMessage: fetchError.message || '获取数据失败'
-                    });
-                }
 
-                // 添加延迟，避免请求过快
-                if (i < entries.length - 1) {
-                    await this.delay(500);
-                }
-            }
-            return results;
+                    try {
+                        let data;
+                        if (parseResult.platform === 'youtube') {
+                            data = await YouTubeService.fetchVideoData(parseResult.videoId);
+                        } else if (parseResult.platform === 'bilibili') {
+                            data = await BilibiliService.fetchVideoData(
+                                parseResult.videoId,
+                                parseResult.type
+                            );
+                        } else if (parseResult.platform === 'twitter') {
+                            data = await TwitterService.fetchVideoData(parseResult.videoId);
+                        }
+                        completed++;
+                        return data;
+                    } catch (fetchError) {
+                        console.error('获取数据失败:', fetchError);
+                        completed++;
+                        return {
+                            platform: entry.platform,
+                            videoId: parseResult.videoId,
+                            title: '',
+                            author: '',
+                            thumbnail: '',
+                            publishTime: '',
+                            viewCount: 0,
+                            likeCount: 0,
+                            commentCount: 0,
+                            shareCount: null,
+                            status: 'error',
+                            errorMessage: fetchError.message || '获取数据失败'
+                        };
+                    }
+                })()
+            );
+
+            const results = await Promise.allSettled(tasks);
+            return results.map(r => r.status === 'fulfilled' ? r.value : {
+                platform: 'unknown',
+                videoId: '',
+                title: '',
+                author: '',
+                thumbnail: '',
+                publishTime: '',
+                viewCount: 0,
+                likeCount: 0,
+                commentCount: 0,
+                shareCount: null,
+                status: 'error',
+                errorMessage: '查询过程异常中断'
+            });
         })();
 
         return Promise.race([fetchPromise, timeoutPromise]);
@@ -309,16 +328,26 @@ class VideoStatsApp {
         console.log(`✅ 查询完成: 成功 ${successCount} 条, 失败 ${errorCount} 条`);
     }
 
-    setLoading(loading) {
+    setLoading(loading, text) {
         this.isLoading = loading;
+        
+        const loadingText = document.getElementById('loading-text');
+        const loadingProgress = document.getElementById('loading-progress');
         
         if (loading) {
             this.loadingOverlay.style.display = 'flex';
             this.queryButton.setLoading(true);
+            if (loadingText) loadingText.textContent = text || '正在获取数据...';
+            if (loadingProgress) loadingProgress.textContent = '';
         } else {
             this.loadingOverlay.style.display = 'none';
             this.queryButton.setLoading(false);
         }
+    }
+
+    setLoadingText(text) {
+        const loadingText = document.getElementById('loading-text');
+        if (loadingText) loadingText.textContent = text;
     }
 
     delay(ms) {

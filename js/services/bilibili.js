@@ -60,7 +60,7 @@ const BilibiliService = {
                 coinCount: 0,
                 dataSource: 'failed',
                 status: 'error',
-                errorMessage: '无法获取数据（可能视频不存在或网络问题）'
+                errorMessage: 'Bilibili API 暂不可用，请稍后重试'
             };
         } catch (error) {
             console.error(`❌ 获取 Bilibili 视频 ${videoId} 数据失败:`, error);
@@ -140,6 +140,10 @@ const BilibiliService = {
                         duration: videoInfo.duration || 0,
                         description: videoInfo.desc || ''
                     };
+                } else if (data.code === -404 || data.code === 62002) {
+                    throw new Error('视频不存在或已被删除');
+                } else if (data.code === -412) {
+                    throw new Error('请求被B站限制，请稍后重试');
                 } else {
                     console.warn(`API 返回错误: ${data.message}`);
                 }
@@ -194,6 +198,12 @@ const BilibiliService = {
                     duration: videoInfo.duration || 0,
                     description: videoInfo.desc || ''
                 };
+            }
+            if (data.code === -404 || data.code === 62002) {
+                throw new Error('视频不存在或已被删除');
+            }
+            if (data.code === -412) {
+                throw new Error('请求被B站限制，请稍后重试');
             }
             throw new Error(data.message || 'API 返回错误');
         } catch (error) {

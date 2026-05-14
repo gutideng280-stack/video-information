@@ -69,7 +69,7 @@ const YouTubeService = {
                 shareCount: null,
                 dataSource: 'failed',
                 status: 'error',
-                errorMessage: '无法获取数据（请检查视频是否存在）'
+                errorMessage: 'YouTube API 暂不可用，请稍后重试'
             };
 
         } catch (error) {
@@ -110,6 +110,12 @@ const YouTubeService = {
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`YouTube API 错误: ${response.status} - ${errorText}`);
+                if (response.status === 403) {
+                    throw new Error('YouTube API 配额已用尽，请稍后重试');
+                }
+                if (response.status === 404) {
+                    throw new Error('视频不存在或已被删除');
+                }
                 return null;
             }
 

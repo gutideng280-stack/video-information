@@ -521,6 +521,12 @@ body {
     color: var(--text-secondary);
 }
 
+.loading-progress {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
 /* 页脚 */
 .footer {
     text-align: center;
