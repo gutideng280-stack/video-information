@@ -322,16 +322,16 @@ class VideoStatsApp {
             return;
         }
 
-        const headers = ['平台', '视频ID', '标题', '发布时间', '播放数', '点赞数', '评论数', '转发数'];
+        const headers = ['平台', '视频ID', '标题', '发布时间', '点赞数', '评论数', '转发数', '播放数'];
         const rows = this.dataTable.data.map(item => [
             item.platform === 'youtube' ? 'YouTube' : (item.platform === 'bilibili' ? 'Bilibili' : 'Twitter'),
             item.videoId,
             item.title,
             item.publishTime ? new Date(item.publishTime).toLocaleString('zh-CN') : '',
-            item.viewCount || 0,
             item.likeCount || 0,
             item.commentCount || 0,
-            item.shareCount || '-'
+            item.shareCount || '-',
+            item.viewCount || 0
         ]);
 
         const csvContent = [

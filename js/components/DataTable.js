@@ -81,9 +81,6 @@ class DataTable {
                             <th class="sortable" data-column="publishTime">
                                 发布时间 ${this.getSortIcon('publishTime')}
                             </th>
-                            <th class="sortable" data-column="viewCount">
-                                播放数 ${this.getSortIcon('viewCount')}
-                            </th>
                             <th class="sortable" data-column="likeCount">
                                 点赞数 ${this.getSortIcon('likeCount')}
                             </th>
@@ -92,6 +89,9 @@ class DataTable {
                             </th>
                             <th class="sortable" data-column="shareCount">
                                 转发数 ${this.getSortIcon('shareCount')}
+                            </th>
+                            <th class="sortable" data-column="viewCount">
+                                播放数 ${this.getSortIcon('viewCount')}
                             </th>
                         </tr>
                     </thead>
@@ -149,9 +149,6 @@ class DataTable {
                 </td>
                 <td>${this.formatDate(item.publishTime)}</td>
                 <td>
-                    <span class="stat-value">${this.formatNumber(item.viewCount)}</span>
-                </td>
-                <td>
                     <span class="stat-value">${this.formatNumber(item.likeCount)}</span>
                 </td>
                 <td>
@@ -159,6 +156,9 @@ class DataTable {
                 </td>
                 <td>
                     <span class="stat-value">${item.shareCount !== null ? this.formatNumber(item.shareCount) : '-'}</span>
+                </td>
+                <td>
+                    <span class="stat-value">${this.formatNumber(item.viewCount)}</span>
                 </td>
             </tr>
         `;
