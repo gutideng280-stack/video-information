@@ -1,30 +1,58 @@
 // Bilibili 数据获取服务
-// 使用页面爬取方式获取视频统计数据（Bilibili API 不支持 CORS）
+// 优先使用官方 API，备用页面爬取（当 CORS 限制时）
+// API: https://api.bilibili.com/x/web-interface/view?bvid=BVxxxxx
+//
+// 注意：Bilibili API 有 CORS 限制（仅允许 bilibili.com 域名）。
+// 需要通过 CORS 代理访问。请先部署 proxy/worker/index.js 作为代理。
 
 const BilibiliService = {
-    // CORS 代理列表
-    corsProxies: [
-        'https://corsproxy.io/?url=',
-        'https://api.allorigins.win/raw?url=',
-        'https://thingproxy.freeboard.io/fetch/'
-    ],
+    // CORS 代理地址（请部署 proxy/worker/index.js 后填入）
+    // 示例: 'https://your-worker.workers.dev'
+    PROXY_BASE: '',
 
-    // 每个代理的超时时间（毫秒）
-    proxyTimeout: 10000,
+    // Bilibili API 基础地址（通过代理访问）
+    get API_BASE() {
+        return this.PROXY_BASE
+            ? `${this.PROXY_BASE}/api.bilibili.com/x/web-interface/view`
+            : 'https://api.bilibili.com/x/web-interface/view';
+    },
+
+    // 每个请求的超时时间（毫秒）
+    timeout: 15000,
 
     /**
-     * 获取 Bilibili 视频数据
-     * @param {string} videoId - Bilibili 视频 ID (BV号)
+     * 获取 Bilibili 视频数据（主入口）
+     * @param {string} videoId - Bilibili 视频 ID (BV号 / av号 / 短链接ID)
      * @param {string} type - ID 类型 ('bv' | 'av' | 'short')
      * @returns {Promise<object>} - 视频数据对象
      */
     async fetchVideoData(videoId, type = 'bv') {
         try {
-            const realData = await this.fetchFromPage(videoId, type);
+            let bvid = videoId;
+
+            // AV号 → BV号 转换（API 只接受 BV 号）
+            if (type === 'av') {
+                const aid = parseInt(videoId.replace('av', ''));
+                bvid = await this.avToBv(aid);
+                if (!bvid) {
+                    return this._errorResult(videoId, 'AV号转BV号失败');
+                }
+            }
+
+            // 短链接 → 先解析出 BV号
+            if (type === 'short') {
+                bvid = await this.resolveShortUrl(videoId);
+                if (!bvid) {
+                    return this._errorResult(videoId, '短链接解析失败');
+                }
+            }
+
+            // 使用 API 获取数据
+            const realData = await this.fetchFromAPI(bvid);
             if (realData) {
                 return {
                     platform: 'bilibili',
-                    videoId: realData.bvid || videoId,
+                    videoId: realData.bvid || bvid,
                     title: realData.title,
                     author: realData.author,
                     thumbnail: realData.thumbnail,
@@ -35,214 +63,187 @@ const BilibiliService = {
                     shareCount: realData.shareCount,
                     favoriteCount: realData.favoriteCount,
                     coinCount: realData.coinCount,
-                    dataSource: 'page',
+                    dataSource: 'api',
                     status: 'success'
                 };
             }
 
-            return {
-                platform: 'bilibili',
-                videoId,
-                title: '',
-                author: '',
-                thumbnail: '',
-                publishTime: '',
-                viewCount: 0,
-                likeCount: 0,
-                commentCount: 0,
-                shareCount: 0,
-                favoriteCount: 0,
-                coinCount: 0,
-                dataSource: 'failed',
-                status: 'error',
-                errorMessage: 'Bilibili API 暂不可用，请稍后重试'
-            };
+            return this._errorResult(videoId, 'Bilibili 数据获取失败，请稍后重试');
         } catch (error) {
-            return {
-                platform: 'bilibili',
-                videoId,
-                title: '',
-                author: '',
-                thumbnail: '',
-                publishTime: '',
-                viewCount: 0,
-                likeCount: 0,
-                commentCount: 0,
-                shareCount: 0,
-                favoriteCount: 0,
-                coinCount: 0,
-                dataSource: 'error',
-                status: 'error',
-                errorMessage: error.message || '获取数据失败'
-            };
+            return this._errorResult(videoId, error.message || '获取数据失败');
         }
     },
 
     /**
-     * 从 Bilibili 页面爬取数据
+     * 使用官方 API 获取视频数据（通过 CORS 代理）
      */
-    async fetchFromPage(videoId, type) {
-        let pageUrl;
-        if (type === 'av') {
-            pageUrl = `https://www.bilibili.com/video/av${videoId.replace('av', '')}`;
-        } else if (type === 'short') {
-            throw new Error('短链接解析暂不可用');
-        } else {
-            pageUrl = `https://www.bilibili.com/video/${videoId}`;
-        }
+    async fetchFromAPI(bvid) {
+        const url = `${this.API_BASE}?bvid=${bvid}`;
 
-        for (let i = 0; i < this.corsProxies.length; i++) {
-            try {
-                const proxyUrl = this.corsProxies[i] + encodeURIComponent(pageUrl);
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), this.proxyTimeout);
-
-                const response = await fetch(proxyUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'text/html,application/xhtml+xml',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    },
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                const html = await response.text();
-                const data = this.parseBilibiliPage(html);
-
-                if (data && data.bvid) {
-                    return data;
-                }
-            } catch (error) {
-                console.warn(`代理 ${i + 1} 失败: ${error.message}`);
-                continue;
-            }
-        }
-
-        return null;
-    },
-
-    /**
-     * 解析 Bilibili 页面 HTML，提取视频数据
-     */
-    parseBilibiliPage(html) {
         try {
-            const data = {
-                bvid: '',
-                title: '',
-                author: '',
-                thumbnail: '',
-                publishTime: '',
-                viewCount: 0,
-                likeCount: 0,
-                commentCount: 0,
-                shareCount: 0,
-                favoriteCount: 0,
-                coinCount: 0
-            };
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-            // 提取 __playinfo__ 数据（视频播放信息）
-            const playInfoMatch = html.match(/window\.__playinfo__\s*=\s*({[\s\S]*?})\s*<(?:\/script|script)/);
-            if (playInfoMatch) {
-                try {
-                    const playInfo = JSON.parse(playInfoMatch[1]);
-                    data.viewCount = parseInt(playInfo.data?.view_durations?.[0]?.view) || 0;
-                } catch (e) { }
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Referer': 'https://www.bilibili.com/',
+                    'Origin': 'https://www.bilibili.com',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                },
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                console.warn(`API 请求失败: HTTP ${response.status}`);
+                return null;
             }
 
-            // 提取 __INITIAL_STATE__ 数据（页面初始状态）
-            const initialStateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?})\s*;?\s*<\/script/);
-            if (initialStateMatch) {
-                try {
-                    const state = JSON.parse(initialStateMatch[1]);
-                    const videoData = state?.videoData || state?.video_info || {};
+            const json = await response.json();
 
-                    if (videoData.bvid) data.bvid = videoData.bvid;
-                    if (videoData.title) data.title = this.decodeHtmlEntities(videoData.title);
-                    if (videoData.owner?.name) data.author = videoData.owner.name;
-                    if (videoData.pic) data.thumbnail = `https:${videoData.pic}`;
-                    if (videoData.pubdate) data.publishTime = this.formatTimestamp(videoData.pubdate);
-
-                    const stat = videoData.stat || videoData.statistics || {};
-                    data.viewCount = stat.view || data.viewCount;
-                    data.likeCount = stat.like || 0;
-                    data.commentCount = stat.reply || 0;
-                    data.shareCount = stat.share || 0;
-                    data.favoriteCount = stat.favorite || 0;
-                    data.coinCount = stat.coin || 0;
-                } catch (e) { }
-            }
-
-            // 备用：从 meta 标签提取
-            if (!data.title) {
-                const titleMatch = html.match(/<title>([^<]+)<\/title>/);
-                if (titleMatch) {
-                    data.title = this.decodeHtmlEntities(titleMatch[1].replace('_哔哩哔哩 (゜-゜)つロ 干杯~-bilibili', '').trim());
+            // 代理模式：检查响应是否是代理包装
+            if (json._proxy) {
+                // 代理返回了真实响应
+                if (json.ok && json.data) {
+                    return this.parseAPIResponse(json.data);
                 }
+                console.warn('代理返回错误:', json.error);
+                return null;
             }
 
-            // 备用：从 og:image 提取缩略图
-            if (!data.thumbnail) {
-                const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
-                if (ogImageMatch) {
-                    data.thumbnail = ogImageMatch[1];
-                }
+            // 直接 API 响应
+            if (json.code !== 0 || !json.data) {
+                console.warn(`API 返回错误: code=${json.code}, message=${json.message}`);
+                return null;
             }
 
-            // 备用：从 view count 标签提取播放量
-            if (data.viewCount === 0) {
-                const viewMatch = html.match(/"viewCountText"[^"]*"[^"]*"simpleText":"([^"]+)"/);
-                if (viewMatch) {
-                    data.viewCount = this.parseCountString(viewMatch[1]);
-                }
-            }
-
-            return data;
+            return this.parseAPIResponse(json.data);
         } catch (error) {
-            console.error('解析 Bilibili 页面失败:', error);
+            console.warn('API 获取失败:', error.message);
             return null;
         }
     },
 
     /**
-     * 解析带单位的数字字符串
+     * 解析官方 API 返回的数据
      */
-    parseCountString(str) {
-        if (!str) return 0;
-        str = str.replace(/,/g, '').trim();
-        const match = str.match(/([\d.]+)\s*([KMB万])?/i);
-        if (!match) return parseInt(str) || 0;
-        const num = parseFloat(match[1]);
-        const unit = match[2]?.toUpperCase();
-        if (unit === 'K' || unit === '万') return Math.round(num * 10000);
-        if (unit === 'M') return Math.round(num * 1000000);
-        if (unit === 'B') return Math.round(num * 1000000000);
-        return Math.round(num);
+    parseAPIResponse(apiData) {
+        const videoData = apiData;
+        const stat = videoData.stat || {};
+
+        return {
+            bvid: videoData.bvid || '',
+            title: videoData.title || '',
+            author: videoData.owner?.name || videoData.author || '',
+            thumbnail: videoData.pic
+                ? (videoData.pic.startsWith('http') ? videoData.pic : `https:${videoData.pic}`)
+                : '',
+            publishTime: videoData.pubdate ? this.formatTimestamp(videoData.pubdate) : '',
+            viewCount: stat.view || 0,
+            likeCount: stat.like || 0,
+            commentCount: stat.reply || 0,
+            shareCount: stat.share || 0,
+            favoriteCount: stat.favorite || 0,
+            coinCount: stat.coin || 0
+        };
     },
 
     /**
-     * 解码 HTML 实体
+     * AV号转BV号（使用 Bilibili API）
      */
-    decodeHtmlEntities(str) {
-        const entities = {
-            '&amp;': '&',
-            '&quot;': '"',
-            '&#39;': "'",
-            '&lt;': '<',
-            '&gt;': '>',
-            '&#x27;': "'",
-            '&#x2F;': '/',
-            '&nbsp;': ' '
-        };
-        for (const [entity, char] of Object.entries(entities)) {
-            str = str.replace(new RegExp(entity, 'g'), char);
+    async avToBv(aid) {
+        const url = this.API_BASE.includes('/proxy/')
+            ? `${this.API_BASE.replace('/x/web-interface/view', '')}/api.bilibili.com/x/web-interface/view?aid=${aid}`
+            : `https://api.bilibili.com/x/web-interface/view?aid=${aid}`;
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            const response = await fetch(url, {
+                headers: {
+                    'Referer': 'https://www.bilibili.com/',
+                    'Origin': 'https://www.bilibili.com',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) return null;
+
+            const json = await response.json();
+
+            // 代理包装
+            if (json._proxy && json.ok) json = json.data;
+
+            return json.data?.bvid || null;
+        } catch (error) {
+            console.warn('AV转BV失败:', error.message);
+            return null;
         }
-        return str;
+    },
+
+    /**
+     * 解析 b23.tv 短链接，获取真实 BV号
+     */
+    async resolveShortUrl(shortId) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            const response = await fetch(`https://b23.tv/${shortId}`, {
+                method: 'GET',
+                redirect: 'follow',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            // 从最终 URL 中提取 BV号
+            const finalUrl = response.url;
+            const bvMatch = finalUrl.match(/bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/);
+            if (bvMatch) return bvMatch[1];
+
+            // 备用：从 location header
+            const locationMatch = response.headers.get('location') || '';
+            const bvFromHeader = locationMatch.match(/bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/);
+            if (bvFromHeader) return bvFromHeader[1];
+
+            return null;
+        } catch (error) {
+            console.warn('短链接解析失败:', error.message);
+            return null;
+        }
+    },
+
+    /**
+     * 统一返回错误结果
+     */
+    _errorResult(videoId, message) {
+        return {
+            platform: 'bilibili',
+            videoId,
+            title: '',
+            author: '',
+            thumbnail: '',
+            publishTime: '',
+            viewCount: 0,
+            likeCount: 0,
+            commentCount: 0,
+            shareCount: 0,
+            favoriteCount: 0,
+            coinCount: 0,
+            dataSource: 'failed',
+            status: 'error',
+            errorMessage: message
+        };
     },
 
     /**

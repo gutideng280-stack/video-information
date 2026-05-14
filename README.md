@@ -109,7 +109,25 @@ https://twitter.com/username/status/1234567890
 - **HTML5** - 语义化标签
 - **CSS3** - 现代 CSS 特性（Flexbox、Grid、动画）
 - **JavaScript ES6+** - 原生 JavaScript，无框架依赖
-- **CORS 代理** - 解决跨域问题（使用 allorigins.win）
+- **CORS 代理** - Cloudflare Worker 代理 Bilibili API 请求（永久免费）
+
+### Bilibili CORS 代理配置（重要）
+
+Bilibili 官方 API 有 CORS 限制，需要部署代理才能使用。
+
+#### 部署 Cloudflare Worker（推荐，免费）
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. **Workers & Pages** → **创建应用程序** → **创建 Worker**
+3. 粘贴 `proxy/worker/index.js` 中的代码并部署
+4. 部署后，复制 Worker URL（例如 `https://bilibili-proxy.你的名字.workers.dev`）
+5. 打开 `js/services/bilibili.js`，将 `PROXY_BASE` 填入 Worker URL
+
+> Cloudflare 免费版每天 10 万次请求，个人使用绑绑够！
+
+#### 为什么需要代理？
+
+Bilibili API 的 `Access-Control-Allow-Origin` 仅允许来自 `bilibili.com` 的请求，直接从浏览器调用会被 CORS 拦截。Cloudflare Worker 转发请求并添加正确的 `Referer` 头，从而绕过此限制。
 
 ### 项目结构
 
@@ -117,17 +135,20 @@ https://twitter.com/username/status/1234567890
 video-information/
 ├── index.html              # 主页面
 ├── README.md              # 项目说明
+├── proxy/
+│   └── worker/
+│       └── index.js       # Cloudflare Worker 代理代码
 ├── css/
 │   └── styles.css         # 样式表
 └── js/
     ├── app.js             # 主应用程序
     ├── components/
-    │   ├── LinkInput.js        # 链接输入组件（含平台选择）
+    │   ├── LinkInput.js        # 链接输入组件
     │   ├── QueryButton.js      # 查询按钮组件
     │   └── DataTable.js        # 数据表格组件
     ├── services/
     │   ├── youtube.js     # YouTube API 服务
-    │   ├── bilibili.js    # Bilibili API 服务
+    │   ├── bilibili.js   # Bilibili API 服务
     │   └── twitter.js     # Twitter/X API 服务
     └── utils/
         └── linkParser.js  # 链接解析工具
@@ -145,8 +166,8 @@ video-information/
 
 - 使用 B 站公开 API：`https://api.bilibili.com/x/web-interface/view`
 - 支持 BV 号、AV 号、短链接解析
-- 支持多个 CORS 代理自动切换
-- 内置模拟数据兜底
+- 通过 Cloudflare Worker 代理绕过 CORS 限制
+- 需要先按上方说明部署代理并配置 `PROXY_BASE`
 
 #### Twitter/X
 
@@ -157,10 +178,10 @@ video-information/
 ## ⚠️ 注意事项
 
 1. **网络环境** - 建议使用稳定的网络连接
-2. **模拟数据** - 当外部 API 不可用时，系统会自动使用模拟数据（有标记提示）
+2. **Bilibili 代理** - 必须部署 Cloudflare Worker 并配置 `PROXY_BASE` 后才能查询 Bilibili 数据
 3. **数据延迟** - 公开 API 数据可能有几分钟的延迟
-4. **跨域问题** - 已通过多个 CORS 代理解决，且有兜底方案
-5. **Twitter 限制** - Twitter 数据获取受反爬虫机制限制，主要使用模拟数据
+4. **跨域问题** - 通过 Cloudflare Worker 代理解决
+5. **Twitter 限制** - Twitter 数据获取受反爬虫机制限制
 
 ## 🎯 演示功能
 
@@ -265,7 +286,7 @@ git push -u origin main
 
 ## 🙏 致谢
 
-- [AllOrigins](https://allorigins.win/) - 提供免费的 CORS 代理服务
+- [Cloudflare Workers](https://workers.cloudflare.com/) - 提供免费的 CORS 代理服务
 - [YouTube](https://www.youtube.com/) - 提供视频数据
 - [Bilibili](https://www.bilibili.com/) - 提供视频数据
 - [Twitter/X](https://x.com/) - 提供视频数据
