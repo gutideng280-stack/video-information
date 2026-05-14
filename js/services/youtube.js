@@ -8,9 +8,7 @@ const YouTubeService = {
     // CORS 代理列表（用于绕过跨域限制）
     corsProxies: [
         'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?',
-        'https://api.codetabs.com/v1/proxy?quest=',
-        'https://proxy.cors.sh/'
+        'https://corsproxy.io/?'
     ],
 
     /**
@@ -99,7 +97,10 @@ const YouTubeService = {
             `&key=${this.API_KEY}`;
 
         try {
-            const response = await fetch(url);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorText = await response.text();

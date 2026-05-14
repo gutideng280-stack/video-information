@@ -210,72 +210,82 @@ class VideoStatsApp {
     async batchFetchData(entries) {
         const results = [];
 
-        // 逐个解析链接并获取数据
-        for (let i = 0; i < entries.length; i++) {
-            const entry = entries[i];
-            console.log(`处理 ${i+1}/${entries.length}:`, entry);
-            
-            const parseResult = LinkParser.parse(entry.url, entry.platform);
-            console.log('解析结果:', parseResult);
-            
-            if (!parseResult.isValid) {
-                results.push({
-                    platform: entry.platform,
-                    videoId: entry.url,
-                    title: '',
-                    author: '',
-                    thumbnail: '',
-                    publishTime: '',
-                    viewCount: 0,
-                    likeCount: 0,
-                    commentCount: 0,
-                    shareCount: null,
-                    status: 'error',
-                    errorMessage: parseResult.error || '链接格式无效'
-                });
-                continue;
-            }
+        // 总体超时保护：每个条目最多 30 秒
+        const PER_ENTRY_TIMEOUT = 30000;
+        const overallTimeout = entries.length * PER_ENTRY_TIMEOUT;
 
-            // 根据平台获取数据
-            try {
-                if (parseResult.platform === 'youtube') {
-                    const data = await YouTubeService.fetchVideoData(parseResult.videoId);
-                    results.push(data);
-                } else if (parseResult.platform === 'bilibili') {
-                    const data = await BilibiliService.fetchVideoData(
-                        parseResult.videoId, 
-                        parseResult.type
-                    );
-                    results.push(data);
-                } else if (parseResult.platform === 'twitter') {
-                    const data = await TwitterService.fetchVideoData(parseResult.videoId);
-                    results.push(data);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('查询超时，请检查网络或稍后重试')), overallTimeout)
+        );
+
+        const fetchPromise = (async () => {
+            for (let i = 0; i < entries.length; i++) {
+                const entry = entries[i];
+                console.log(`处理 ${i+1}/${entries.length}:`, entry);
+
+                const parseResult = LinkParser.parse(entry.url, entry.platform);
+                console.log('解析结果:', parseResult);
+
+                if (!parseResult.isValid) {
+                    results.push({
+                        platform: entry.platform,
+                        videoId: entry.url,
+                        title: '',
+                        author: '',
+                        thumbnail: '',
+                        publishTime: '',
+                        viewCount: 0,
+                        likeCount: 0,
+                        commentCount: 0,
+                        shareCount: null,
+                        status: 'error',
+                        errorMessage: parseResult.error || '链接格式无效'
+                    });
+                    continue;
                 }
-            } catch (fetchError) {
-                console.error('获取数据失败:', fetchError);
-                results.push({
-                    platform: entry.platform,
-                    videoId: parseResult.videoId,
-                    title: '',
-                    author: '',
-                    thumbnail: '',
-                    publishTime: '',
-                    viewCount: 0,
-                    likeCount: 0,
-                    commentCount: 0,
-                    shareCount: null,
-                    status: 'error',
-                    errorMessage: fetchError.message || '获取数据失败'
-                });
-            }
 
-            // 添加延迟，避免请求过快
-            if (i < entries.length - 1) {
-                await this.delay(500);
-            }
-        }
+                // 根据平台获取数据
+                try {
+                    if (parseResult.platform === 'youtube') {
+                        const data = await YouTubeService.fetchVideoData(parseResult.videoId);
+                        results.push(data);
+                    } else if (parseResult.platform === 'bilibili') {
+                        const data = await BilibiliService.fetchVideoData(
+                            parseResult.videoId,
+                            parseResult.type
+                        );
+                        results.push(data);
+                    } else if (parseResult.platform === 'twitter') {
+                        const data = await TwitterService.fetchVideoData(parseResult.videoId);
+                        results.push(data);
+                    }
+                } catch (fetchError) {
+                    console.error('获取数据失败:', fetchError);
+                    results.push({
+                        platform: entry.platform,
+                        videoId: parseResult.videoId,
+                        title: '',
+                        author: '',
+                        thumbnail: '',
+                        publishTime: '',
+                        viewCount: 0,
+                        likeCount: 0,
+                        commentCount: 0,
+                        shareCount: null,
+                        status: 'error',
+                        errorMessage: fetchError.message || '获取数据失败'
+                    });
+                }
 
-        return results;
+                // 添加延迟，避免请求过快
+                if (i < entries.length - 1) {
+                    await this.delay(500);
+                }
+            }
+            return results;
+        })();
+
+        return Promise.race([fetchPromise, timeoutPromise]);
     }
 
     displayResults(results) {

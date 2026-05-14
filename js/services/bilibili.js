@@ -5,9 +5,7 @@ const BilibiliService = {
     // CORS 代理列表
     corsProxies: [
         'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?',
-        'https://api.codetabs.com/v1/proxy?quest=',
-        'https://proxy.cors.sh/'
+        'https://corsproxy.io/?'
     ],
 
     /**
