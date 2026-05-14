@@ -95,7 +95,7 @@ const YouTubeService = {
     },
 
     /**
-     * 使用 YouTube Data API v3 获取数据
+     * 使用 YouTube Data API v3 获取数据（直连优先，失败用代理兜底）
      */
     async fetchFromYouTubeAPI(videoId) {
         const url = `https://www.googleapis.com/youtube/v3/videos?` +
@@ -126,7 +126,6 @@ const YouTubeService = {
                             errorMsg = `YouTube API 错误: ${message}`;
                         }
                     } catch {
-                        // 解析失败，使用默认提示
                     }
                     throw new Error(errorMsg);
                 }
@@ -143,32 +142,73 @@ const YouTubeService = {
                 return null;
             }
 
-            const video = data.items[0];
-            const snippet = video.snippet;
-            const statistics = video.statistics;
-            const contentDetails = video.contentDetails;
-
-            // 解析时长
-            const duration = this.parseDuration(contentDetails?.duration);
-
-            return {
-                title: snippet.title || '未知标题',
-                author: snippet.channelTitle || '未知作者',
-                publishTime: snippet.publishedAt || '',
-                viewCount: parseInt(statistics?.viewCount) || 0,
-                likeCount: parseInt(statistics?.likeCount) || 0,
-                commentCount: parseInt(statistics?.commentCount) || 0,
-                shareCount: 0, // YouTube API 不提供转发数
-                duration: duration
-            };
+            return this.parseApiResponse(data);
         } catch (error) {
-            console.error('YouTube API 请求失败:', error);
-            // 配额/不存在等已知错误向上传递，网络错误则尝试备用方法
+            console.error('YouTube API 直连失败:', error.message);
             if (error.message.includes('配额') || error.message.includes('不存在') || error.message.includes('删除')) {
                 throw error;
             }
-            return null;
+            return await this.fetchFromYouTubeAPIWithProxy(videoId);
         }
+    },
+
+    /**
+     * 通过代理获取 YouTube API 数据
+     */
+    async fetchFromYouTubeAPIWithProxy(videoId) {
+        const url = `https://www.googleapis.com/youtube/v3/videos?` +
+            `part=snippet,statistics,contentDetails` +
+            `&id=${videoId}` +
+            `&key=${this.API_KEY}`;
+
+        console.log('尝试使用代理获取 YouTube 数据...');
+
+        for (let i = 0; i < this.corsProxies.length; i++) {
+            try {
+                const proxyUrl = this.corsProxies[i] + encodeURIComponent(url);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), this.proxyTimeout);
+                const response = await fetch(proxyUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.items && data.items.length > 0) {
+                        console.log(`通过代理 ${i + 1} 获取成功`);
+                        return this.parseApiResponse(data);
+                    }
+                }
+            } catch (e) {
+                console.warn(`代理 ${i + 1} 失败: ${e.message}`);
+                continue;
+            }
+        }
+
+        console.warn('所有代理均失败');
+        return null;
+    },
+
+    /**
+     * 解析 API 响应数据
+     */
+    parseApiResponse(data) {
+        const video = data.items[0];
+        const snippet = video.snippet;
+        const statistics = video.statistics;
+        const contentDetails = video.contentDetails;
+
+        const duration = this.parseDuration(contentDetails?.duration);
+
+        return {
+            title: snippet.title || '未知标题',
+            author: snippet.channelTitle || '未知作者',
+            publishTime: snippet.publishedAt || '',
+            viewCount: parseInt(statistics?.viewCount) || 0,
+            likeCount: parseInt(statistics?.likeCount) || 0,
+            commentCount: parseInt(statistics?.commentCount) || 0,
+            shareCount: 0,
+            duration: duration
+        };
     },
 
     /**
