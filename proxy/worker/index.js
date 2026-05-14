@@ -70,17 +70,19 @@ export default {
         }
 
         try {
-            // 转发请求，添加 Bilibili 需要的头
+            // 转发请求，添加完整的浏览器请求头以绕过风控
             const headers = new Headers();
             headers.set('Referer', 'https://www.bilibili.com/');
             headers.set('Origin', 'https://www.bilibili.com');
-            headers.set('User-Agent', request.headers.get('User-Agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-
-            // 透传原始请求头（除了 Host）
-            ['Accept', 'Accept-Language', 'Accept-Encoding'].forEach(key => {
-                const val = request.headers.get(key);
-                if (val) headers.set(key, val);
-            });
+            headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            headers.set('Accept', 'application/json, text/plain, */*');
+            headers.set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
+            headers.set('Accept-Encoding', 'gzip, deflate, br');
+            headers.set('Connection', 'keep-alive');
+            headers.set('Sec-Fetch-Dest', 'empty');
+            headers.set('Sec-Fetch-Mode', 'cors');
+            headers.set('Sec-Fetch-Site', 'same-site');
+            headers.set('DNT', '1');
 
             const response = await fetch(targetUrl, {
                 method: request.method,
