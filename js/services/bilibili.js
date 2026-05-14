@@ -177,7 +177,10 @@ const BilibiliService = {
      */
     async fetchFromAPI(bvid) {
         console.log('🔄 尝试 API + 代理方案:', bvid);
-        const url = `${this.PROXY_BASE}/api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
+        // Worker URL 格式：/proxy?url=https://...
+        const targetUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
+        const url = `${this.PROXY_BASE}/proxy?url=${encodeURIComponent(targetUrl)}`;
+        console.log('📡 API 代理请求:', url);
 
         try {
             const controller = new AbortController();
