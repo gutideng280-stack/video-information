@@ -95,7 +95,7 @@ const YouTubeService = {
     },
 
     /**
-     * 使用 YouTube Data API v3 获取数据（直连优先，失败用代理兜底）
+     * 使用 YouTube Data API v3 获取数据
      */
     async fetchFromYouTubeAPI(videoId) {
         const url = `https://www.googleapis.com/youtube/v3/videos?` +
@@ -111,7 +111,6 @@ const YouTubeService = {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error(`YouTube API 错误: ${response.status} - ${errorText}`);
                 if (response.status === 403) {
                     let errorMsg = 'YouTube API 请求被拒绝（403）';
                     try {
@@ -120,8 +119,6 @@ const YouTubeService = {
                         const message = errorJson?.error?.message;
                         if (reason === 'quotaExceeded') {
                             errorMsg = 'YouTube API 每日配额已用尽，请明天再试或更换 API Key';
-                        } else if (reason === 'accessNotConfigured' || reason === 'referrerNotAllowed') {
-                            errorMsg = 'YouTube API Key 限制了访问来源，请检查 API Key 的 HTTP 来源限制设置，添加 GitHub Pages 域名到允许列表';
                         } else if (message) {
                             errorMsg = `YouTube API 错误: ${message}`;
                         }
@@ -144,48 +141,11 @@ const YouTubeService = {
 
             return this.parseApiResponse(data);
         } catch (error) {
-            console.error('YouTube API 直连失败:', error.message);
             if (error.message.includes('配额') || error.message.includes('不存在') || error.message.includes('删除')) {
                 throw error;
             }
-            return await this.fetchFromYouTubeAPIWithProxy(videoId);
+            return null;
         }
-    },
-
-    /**
-     * 通过代理获取 YouTube API 数据
-     */
-    async fetchFromYouTubeAPIWithProxy(videoId) {
-        const url = `https://www.googleapis.com/youtube/v3/videos?` +
-            `part=snippet,statistics,contentDetails` +
-            `&id=${videoId}` +
-            `&key=${this.API_KEY}`;
-
-        console.log('尝试使用代理获取 YouTube 数据...');
-
-        for (let i = 0; i < this.corsProxies.length; i++) {
-            try {
-                const proxyUrl = this.corsProxies[i] + encodeURIComponent(url);
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), this.proxyTimeout);
-                const response = await fetch(proxyUrl, { signal: controller.signal });
-                clearTimeout(timeoutId);
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.items && data.items.length > 0) {
-                        console.log(`通过代理 ${i + 1} 获取成功`);
-                        return this.parseApiResponse(data);
-                    }
-                }
-            } catch (e) {
-                console.warn(`代理 ${i + 1} 失败: ${e.message}`);
-                continue;
-            }
-        }
-
-        console.warn('所有代理均失败');
-        return null;
     },
 
     /**
