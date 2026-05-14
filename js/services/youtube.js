@@ -3,7 +3,7 @@
 
 const YouTubeService = {
     // YouTube Data API Key
-    API_KEY: 'AIzaSyBwKk0TAx6zkMlCF1T0WzhRSylfvmXBh00',
+    API_KEY: 'AIzaSyCHJAgIqmecLoAu6USoUZAdMwavJ8fJfsM',
 
     // CORS 代理列表（用于绕过跨域限制）
     corsProxies: [
