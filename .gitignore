@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary test files
+test.html
+button-test.html
+minimal-test.html
+diagnose.html
+test_share_count.js
+
+# Log files
+*.log
+
+# Trae files
+.trae/

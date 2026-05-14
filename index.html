@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频互动数据统计工具</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <header class="header">
+            <div class="header-content">
+                <h1 class="header-title">📊 视频互动数据统计工具</h1>
+                <p class="header-subtitle">批量查询 YouTube、哔哩哔哩、Twitter 视频的关键互动指标</p>
+            </div>
+        </header>
+
+        <main class="main-container">
+            <!-- 链接输入区 -->
+            <section class="card input-section">
+                <div class="section-header">
+                    <h2 class="section-title">输入视频链接</h2>
+                    <div class="button-group">
+                        <button id="demo-btn" class="btn btn-secondary">
+                            <span class="btn-icon">✨</span>
+                            填充演示
+                        </button>
+                        <button id="add-entry-btn" class="btn btn-secondary">
+                            <span class="btn-icon">+</span>
+                            添加链接
+                        </button>
+                    </div>
+                </div>
+                <div id="link-inputs-container"></div>
+                <p class="input-hint">支持最多10个视频链接，可混合查询 YouTube、Bilibili、Twitter | 点击"填充演示"可快速测试</p>
+            </section>
+
+            <!-- 查询操作区 -->
+            <section class="action-section">
+                <button id="query-btn" class="btn btn-primary btn-large">
+                    <span class="btn-icon">🔍</span>
+                    <span id="query-btn-text">确认查询</span>
+                </button>
+            </section>
+
+            <!-- 数据展示区 -->
+            <section id="results-section" class="card results-section" style="display: none;">
+                <h2 class="section-title">📈 查询结果</h2>
+                <div id="data-table-container"></div>
+            </section>
+
+            <!-- 加载状态 -->
+            <div id="loading-overlay" class="loading-overlay" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p class="loading-text">正在获取数据...</p>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>© 2024 视频互动数据统计工具 | 支持 YouTube & 哔哩哔哩 & Twitter</p>
+        </footer>
+    </div>
+
+    <script src="js/utils/linkParser.js"></script>
+    <script src="js/services/youtube.js"></script>
+    <script src="js/services/bilibili.js"></script>
+    <script src="js/services/twitter.js"></script>
+    <script src="js/components/LinkInput.js"></script>
+    <script src="js/components/QueryButton.js"></script>
+    <script src="js/components/DataTable.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
