@@ -10,7 +10,9 @@ const YouTubeService = {
         'https://api.allorigins.win/raw?url=',
         'https://corsproxy.io/?',
         'https://api.codetabs.com/v1/proxy?quest=',
-        'https://proxy.cors.sh/'
+        'https://proxy.cors.sh/',
+        'https://thingproxy.freeboard.io/fetch/',
+        'https://cors-anywhere.herokuapp.com/'
     ],
 
     // 每个代理的超时时间（毫秒）
@@ -146,6 +148,10 @@ const YouTubeService = {
             };
         } catch (error) {
             console.error('YouTube API 请求失败:', error);
+            // 配额/不存在等已知错误向上传递，网络错误则尝试备用方法
+            if (error.message.includes('配额') || error.message.includes('不存在') || error.message.includes('删除')) {
+                throw error;
+            }
             return null;
         }
     },

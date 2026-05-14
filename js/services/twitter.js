@@ -7,7 +7,9 @@ const TwitterService = {
         'https://api.allorigins.win/raw?url=',
         'https://corsproxy.io/?',
         'https://api.codetabs.com/v1/proxy?quest=',
-        'https://proxy.cors.sh/'
+        'https://proxy.cors.sh/',
+        'https://thingproxy.freeboard.io/fetch/',
+        'https://cors-anywhere.herokuapp.com/'
     ],
 
     // 每个代理的超时时间（毫秒）
