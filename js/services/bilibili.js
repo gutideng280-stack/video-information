@@ -1,16 +1,16 @@
 // Bilibili 数据获取服务
-// 使用哔哩哔哩公开 API + CORS 代理获取视频统计数据
+// 使用页面爬取方式获取视频统计数据（Bilibili API 不支持 CORS）
 
 const BilibiliService = {
-    // CORS 代理列表（Bilibili API 不支持 CORS，必须用代理）
+    // CORS 代理列表
     corsProxies: [
-        'https://corsproxy.io/?',
+        'https://corsproxy.io/?url=',
         'https://api.allorigins.win/raw?url=',
         'https://thingproxy.freeboard.io/fetch/'
     ],
 
     // 每个代理的超时时间（毫秒）
-    proxyTimeout: 8000,
+    proxyTimeout: 10000,
 
     /**
      * 获取 Bilibili 视频数据
@@ -20,7 +20,7 @@ const BilibiliService = {
      */
     async fetchVideoData(videoId, type = 'bv') {
         try {
-            const realData = await this.fetchRealData(videoId, type);
+            const realData = await this.fetchFromPage(videoId, type);
             if (realData) {
                 return {
                     platform: 'bilibili',
@@ -35,7 +35,7 @@ const BilibiliService = {
                     shareCount: realData.shareCount,
                     favoriteCount: realData.favoriteCount,
                     coinCount: realData.coinCount,
-                    dataSource: 'api',
+                    dataSource: 'page',
                     status: 'success'
                 };
             }
@@ -79,31 +79,28 @@ const BilibiliService = {
     },
 
     /**
-     * 尝试获取真实数据（通过代理）
+     * 从 Bilibili 页面爬取数据
      */
-    async fetchRealData(videoId, type) {
-        if (type === 'short') {
-            throw new Error('短链接解析暂不可用');
-        }
-
-        let apiUrl;
+    async fetchFromPage(videoId, type) {
+        let pageUrl;
         if (type === 'av') {
-            const aid = parseInt(videoId.replace('av', ''));
-            apiUrl = `https://api.bilibili.com/x/web-interface/view?aid=${aid}`;
+            pageUrl = `https://www.bilibili.com/video/av${videoId.replace('av', '')}`;
+        } else if (type === 'short') {
+            throw new Error('短链接解析暂不可用');
         } else {
-            apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${videoId}`;
+            pageUrl = `https://www.bilibili.com/video/${videoId}`;
         }
 
         for (let i = 0; i < this.corsProxies.length; i++) {
             try {
-                const proxyUrl = this.corsProxies[i] + encodeURIComponent(apiUrl);
+                const proxyUrl = this.corsProxies[i] + encodeURIComponent(pageUrl);
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), this.proxyTimeout);
 
                 const response = await fetch(proxyUrl, {
                     method: 'GET',
                     headers: {
-                        'Accept': 'application/json',
+                        'Accept': 'text/html,application/xhtml+xml',
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                     },
                     signal: controller.signal
@@ -115,41 +112,137 @@ const BilibiliService = {
                     throw new Error(`HTTP ${response.status}`);
                 }
 
-                const result = await response.json();
+                const html = await response.text();
+                const data = this.parseBilibiliPage(html);
 
-                if (result.code === -404 || result.code === 62002) {
-                    throw new Error('视频不存在或已被删除');
+                if (data && data.bvid) {
+                    return data;
                 }
-                if (result.code === -412) {
-                    throw new Error('请求被B站限制，请稍后重试');
-                }
-                if (result.code !== 0 || !result.data) {
-                    throw new Error(result.message || 'API 返回错误');
-                }
-
-                const videoInfo = result.data;
-                return {
-                    bvid: videoInfo.bvid,
-                    title: videoInfo.title || '未知标题',
-                    author: videoInfo.owner?.name || '未知UP主',
-                    thumbnail: videoInfo.pic ? `https:${videoInfo.pic}` : '',
-                    publishTime: this.formatTimestamp(videoInfo.pubdate),
-                    viewCount: videoInfo.stat?.view || 0,
-                    likeCount: videoInfo.stat?.like || 0,
-                    commentCount: videoInfo.stat?.reply || 0,
-                    shareCount: videoInfo.stat?.share || 0,
-                    favoriteCount: videoInfo.stat?.favorite || 0,
-                    coinCount: videoInfo.stat?.coin || 0,
-                    duration: videoInfo.duration || 0,
-                    description: videoInfo.desc || ''
-                };
             } catch (error) {
                 console.warn(`代理 ${i + 1} 失败: ${error.message}`);
                 continue;
             }
         }
 
-        throw new Error('Bilibili API 暂不可用');
+        return null;
+    },
+
+    /**
+     * 解析 Bilibili 页面 HTML，提取视频数据
+     */
+    parseBilibiliPage(html) {
+        try {
+            const data = {
+                bvid: '',
+                title: '',
+                author: '',
+                thumbnail: '',
+                publishTime: '',
+                viewCount: 0,
+                likeCount: 0,
+                commentCount: 0,
+                shareCount: 0,
+                favoriteCount: 0,
+                coinCount: 0
+            };
+
+            // 提取 __playinfo__ 数据（视频播放信息）
+            const playInfoMatch = html.match(/window\.__playinfo__\s*=\s*({[\s\S]*?})\s*<(?:\/script|script)/);
+            if (playInfoMatch) {
+                try {
+                    const playInfo = JSON.parse(playInfoMatch[1]);
+                    data.viewCount = parseInt(playInfo.data?.view_durations?.[0]?.view) || 0;
+                } catch (e) { }
+            }
+
+            // 提取 __INITIAL_STATE__ 数据（页面初始状态）
+            const initialStateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?})\s*;?\s*<\/script/);
+            if (initialStateMatch) {
+                try {
+                    const state = JSON.parse(initialStateMatch[1]);
+                    const videoData = state?.videoData || state?.video_info || {};
+
+                    if (videoData.bvid) data.bvid = videoData.bvid;
+                    if (videoData.title) data.title = this.decodeHtmlEntities(videoData.title);
+                    if (videoData.owner?.name) data.author = videoData.owner.name;
+                    if (videoData.pic) data.thumbnail = `https:${videoData.pic}`;
+                    if (videoData.pubdate) data.publishTime = this.formatTimestamp(videoData.pubdate);
+
+                    const stat = videoData.stat || videoData.statistics || {};
+                    data.viewCount = stat.view || data.viewCount;
+                    data.likeCount = stat.like || 0;
+                    data.commentCount = stat.reply || 0;
+                    data.shareCount = stat.share || 0;
+                    data.favoriteCount = stat.favorite || 0;
+                    data.coinCount = stat.coin || 0;
+                } catch (e) { }
+            }
+
+            // 备用：从 meta 标签提取
+            if (!data.title) {
+                const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+                if (titleMatch) {
+                    data.title = this.decodeHtmlEntities(titleMatch[1].replace('_哔哩哔哩 (゜-゜)つロ 干杯~-bilibili', '').trim());
+                }
+            }
+
+            // 备用：从 og:image 提取缩略图
+            if (!data.thumbnail) {
+                const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+                if (ogImageMatch) {
+                    data.thumbnail = ogImageMatch[1];
+                }
+            }
+
+            // 备用：从 view count 标签提取播放量
+            if (data.viewCount === 0) {
+                const viewMatch = html.match(/"viewCountText"[^"]*"[^"]*"simpleText":"([^"]+)"/);
+                if (viewMatch) {
+                    data.viewCount = this.parseCountString(viewMatch[1]);
+                }
+            }
+
+            return data;
+        } catch (error) {
+            console.error('解析 Bilibili 页面失败:', error);
+            return null;
+        }
+    },
+
+    /**
+     * 解析带单位的数字字符串
+     */
+    parseCountString(str) {
+        if (!str) return 0;
+        str = str.replace(/,/g, '').trim();
+        const match = str.match(/([\d.]+)\s*([KMB万])?/i);
+        if (!match) return parseInt(str) || 0;
+        const num = parseFloat(match[1]);
+        const unit = match[2]?.toUpperCase();
+        if (unit === 'K' || unit === '万') return Math.round(num * 10000);
+        if (unit === 'M') return Math.round(num * 1000000);
+        if (unit === 'B') return Math.round(num * 1000000000);
+        return Math.round(num);
+    },
+
+    /**
+     * 解码 HTML 实体
+     */
+    decodeHtmlEntities(str) {
+        const entities = {
+            '&amp;': '&',
+            '&quot;': '"',
+            '&#39;': "'",
+            '&lt;': '<',
+            '&gt;': '>',
+            '&#x27;': "'",
+            '&#x2F;': '/',
+            '&nbsp;': ' '
+        };
+        for (const [entity, char] of Object.entries(entities)) {
+            str = str.replace(new RegExp(entity, 'g'), char);
+        }
+        return str;
     },
 
     /**
